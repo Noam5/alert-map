@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>מפת התראות ישראל</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #0a0a1a; color: #e0e0e0; overflow: hidden; height: 100vh; }
+
+  #app { display: flex; height: 100vh; }
+
+  /* Sidebar */
+  #sidebar {
+    width: 380px; min-width: 380px; background: #111128;
+    display: flex; flex-direction: column; z-index: 1000;
+    border-left: 1px solid #2a2a4a; overflow-y: auto;
+  }
+  #sidebar h1 {
+    font-size: 1.3em; padding: 18px 20px 10px; color: #ff4444;
+    border-bottom: 1px solid #2a2a4a; text-align: center;
+  }
+  #sidebar h1 small { display: block; font-size: 0.6em; color: #888; margin-top: 4px; font-weight: normal; }
+
+  .section { padding: 14px 18px; border-bottom: 1px solid #1a1a3a; }
+  .section-title { font-size: 0.85em; color: #888; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* Date controls */
+  .date-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+  .date-row label { font-size: 0.85em; min-width: 30px; }
+  .date-row input[type="date"] {
+    flex: 1; background: #1a1a3a; border: 1px solid #333; color: #e0e0e0;
+    padding: 6px 8px; border-radius: 6px; font-size: 0.85em;
+  }
+  .preset-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .preset-btn {
+    padding: 4px 10px; background: #1e1e40; border: 1px solid #333;
+    color: #aaa; border-radius: 14px; cursor: pointer; font-size: 0.75em; transition: all 0.2s;
+  }
+  .preset-btn:hover, .preset-btn.active { background: #ff4444; color: white; border-color: #ff4444; }
+
+  /* Type filters */
+  .type-filter {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    background: #1a1a3a; border-radius: 8px; margin-bottom: 6px; cursor: pointer; transition: all 0.2s;
+  }
+  .type-filter:hover { background: #222250; }
+  .type-filter input { accent-color: #ff4444; }
+  .type-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .type-label { flex: 1; font-size: 0.85em; }
+  .type-count { font-size: 0.8em; color: #888; font-variant-numeric: tabular-nums; }
+
+  /* View toggle */
+  .view-toggle { display: flex; gap: 4px; background: #1a1a3a; border-radius: 8px; padding: 3px; }
+  .view-btn {
+    flex: 1; padding: 6px; text-align: center; border-radius: 6px; cursor: pointer;
+    font-size: 0.8em; transition: all 0.2s; color: #888;
+  }
+  .view-btn.active { background: #ff4444; color: white; }
+
+  /* Stats */
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card {
+    background: #1a1a3a; padding: 12px; border-radius: 8px; text-align: center;
+  }
+  .stat-value { font-size: 1.6em; font-weight: bold; color: #ff6666; font-variant-numeric: tabular-nums; }
+  .stat-label { font-size: 0.7em; color: #888; margin-top: 2px; }
+
+  /* Top cities */
+  .city-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 0.8em; }
+  .city-bar-name { min-width: 110px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .city-bar-track { flex: 1; height: 16px; background: #1a1a3a; border-radius: 4px; overflow: hidden; }
+  .city-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+  .city-bar-count { min-width: 30px; text-align: right; color: #888; font-variant-numeric: tabular-nums; }
+
+  /* Timeline chart */
+  #timeline-container { height: 140px; position: relative; }
+  #timeline-canvas { width: 100%; height: 100%; }
+
+  /* Hour of day chart */
+  #hourly-container { height: 120px; position: relative; }
+  #hourly-canvas { width: 100%; height: 100%; }
+
+  /* Auto-refresh indicator */
+  .refresh-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 8px; font-size: 0.75em; color: #666;
+  }
+  .refresh-dot { width: 6px; height: 6px; border-radius: 50%; background: #44ff44; display: inline-block; margin-left: 4px; }
+  .refresh-dot.stale { background: #888; }
+
+  /* Map */
+  #map { flex: 1; background: #0a0a1a; }
+
+  /* Loading overlay */
+  #loading {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(10,10,26,0.95); display: flex; align-items: center; justify-content: center;
+    z-index: 9999; flex-direction: column; gap: 16px;
+  }
+  #loading.hidden { display: none; }
+  .spinner {
+    width: 40px; height: 40px; border: 3px solid #333;
+    border-top: 3px solid #ff4444; border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading-text { color: #888; font-size: 0.9em; }
+
+  /* Info popup */
+  .leaflet-popup-content-wrapper { background: #1a1a3a; color: #e0e0e0; border-radius: 10px; }
+  .leaflet-popup-tip { background: #1a1a3a; }
+  .popup-title { font-weight: bold; font-size: 1em; margin-bottom: 4px; }
+  .popup-stat { font-size: 0.85em; color: #aaa; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    #sidebar { width: 100%; min-width: unset; height: 45vh; border-left: none; border-top: 1px solid #2a2a4a; }
+    #app { flex-direction: column-reverse; }
+  }
+
+  /* City filter */
+  .city-search-wrap { position: relative; }
+  #city-search {
+    width: 100%; background: #1a1a3a; border: 1px solid #333; color: #e0e0e0;
+    padding: 8px 12px; border-radius: 8px; font-size: 0.85em; outline: none;
+    transition: border-color 0.2s;
+  }
+  #city-search:focus { border-color: #ff4444; }
+  #city-search::placeholder { color: #555; }
+  #city-dropdown {
+    position: absolute; top: 100%; left: 0; right: 0; max-height: 200px;
+    overflow-y: auto; background: #1a1a3a; border: 1px solid #333; border-top: none;
+    border-radius: 0 0 8px 8px; z-index: 100; display: none;
+  }
+  #city-dropdown.open { display: block; }
+  .city-option {
+    padding: 6px 12px; cursor: pointer; font-size: 0.82em; transition: background 0.15s;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .city-option:hover, .city-option.highlighted { background: #222250; }
+  .city-option-count { color: #888; font-size: 0.8em; }
+  .active-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .city-tag {
+    display: flex; align-items: center; gap: 4px; background: #2a1a3a; border: 1px solid #ff4444;
+    color: #ff8888; padding: 3px 8px; border-radius: 14px; font-size: 0.75em;
+  }
+  .city-tag-x {
+    cursor: pointer; font-size: 1.1em; line-height: 1; opacity: 0.7; transition: opacity 0.15s;
+  }
+  .city-tag-x:hover { opacity: 1; }
+  .city-clear-all {
+    background: none; border: 1px solid #555; color: #888; padding: 3px 8px;
+    border-radius: 14px; font-size: 0.75em; cursor: pointer; transition: all 0.2s;
+  }
+  .city-clear-all:hover { border-color: #ff4444; color: #ff4444; }
+
+  /* Scrollbar */
+  #sidebar::-webkit-scrollbar { width: 6px; }
+  #sidebar::-webkit-scrollbar-track { background: transparent; }
+  #sidebar::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+  #city-dropdown::-webkit-scrollbar { width: 5px; }
+  #city-dropdown::-webkit-scrollbar-track { background: transparent; }
+  #city-dropdown::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div id="loading-text">טוען נתונים...</div>
+</div>
+
+<div id="app">
+  <div id="map"></div>
+  <div id="sidebar">
+    <h1>🚨 מפת התראות ישראל<small>נתונים מ-tzevadom.com</small></h1>
+
+    <div class="section">
+      <div class="section-title">טווח תאריכים</div>
+      <div class="date-row">
+        <label>מ:</label>
+        <input type="date" id="date-from" />
+      </div>
+      <div class="date-row">
+        <label>עד:</label>
+        <input type="date" id="date-to" />
+      </div>
+      <div class="preset-btns">
+        <div class="preset-btn" data-range="7">שבוע</div>
+        <div class="preset-btn" data-range="30">חודש</div>
+        <div class="preset-btn" data-range="90" >3 חודשים</div>
+        <div class="preset-btn" data-range="180">חצי שנה</div>
+        <div class="preset-btn" data-range="365">שנה</div>
+      </div>
+      <div class="refresh-row">
+        <span>עדכון אוטומטי כל 60 שניות <span class="refresh-dot" id="refresh-dot"></span></span>
+        <span id="last-refresh"></span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">סוג התראה</div>
+      <div id="type-filters"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">סינון לפי יישוב</div>
+      <div class="city-search-wrap">
+        <input type="text" id="city-search" placeholder="חפש יישוב..." autocomplete="off" />
+        <div id="city-dropdown"></div>
+      </div>
+      <div class="active-filters" id="active-city-filters"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">תצוגה</div>
+      <div class="view-toggle">
+        <div class="view-btn active" data-view="heatmap">מפת חום</div>
+        <div class="view-btn" data-view="clusters">אשכולות</div>
+        <div class="view-btn" data-view="bubbles">בועות</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">סטטיסטיקה</div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-value" id="stat-alerts">0</div><div class="stat-label">התראות</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-cities">0</div><div class="stat-label">יישובים</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-city-mentions">0</div><div class="stat-label">אזכורי יישוב</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-avg">0</div><div class="stat-label">ממוצע ליום</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">ציר זמן</div>
+      <div id="timeline-container">
+        <canvas id="timeline-canvas"></canvas>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">שעה ביום</div>
+      <div id="hourly-container">
+        <canvas id="hourly-canvas"></canvas>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">יישובים מובילים</div>
+      <div id="top-cities"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script>
+(async function() {
+  // --- Config ---
+  const ALERT_TYPES = {
+    0: { name: 'צבע אדום', color: '#ff4444', icon: '🔴' },
+    2: { name: 'חשש לחדירת מחבלים', color: '#ff8800', icon: '🟠' },
+    5: { name: 'כלי טיס עוין', color: '#44aaff', icon: '🔵' },
+  };
+
+  const API_BASE = '/api/alerts';
+
+  // --- State ---
+  let citiesDb = {};
+  let allAlerts = [];
+  let filteredAlerts = [];
+  let currentView = 'heatmap';
+  let activeTypes = new Set([0, 2, 5]);
+  let heatLayer = null;
+  let clusterGroup = null;
+  let bubbleGroup = null;
+  let selectedCities = new Set(); // city filter
+
+  // --- Init Map ---
+  const map = L.map('map', {
+    center: [31.5, 34.8],
+    zoom: 8,
+    zoomControl: false,
+    attributionControl: false,
+  });
+
+  L.control.zoom({ position: 'topright' }).addTo(map);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap contributors © CARTO',
+    maxZoom: 18,
+  }).addTo(map);
+
+  // --- Load Cities DB ---
+  async function loadCities() {
+    updateLoading('טוען מאגר יישובים...');
+    const res = await fetch('/api/cities');
+    const data = await res.json();
+    citiesDb = data.cities;
+    console.log(`Loaded ${Object.keys(citiesDb).length} cities`);
+  }
+
+  // --- Load Alerts ---
+  async function loadAlerts(from, to) {
+    updateLoading('טוען התראות...');
+    const url = `${API_BASE}?from=${from}&to=${to}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return data.alerts || [];
+  }
+
+  // --- Resolve city to coords ---
+  function cityCoords(name) {
+    const c = citiesDb[name];
+    if (c) return [c.lat, c.lng];
+    // Try partial match
+    const normalized = name.replace(/\s*-\s*/g, ' - ');
+    for (const [key, val] of Object.entries(citiesDb)) {
+      if (key.includes(name) || name.includes(key)) return [val.lat, val.lng];
+    }
+    return null;
+  }
+
+  // --- Aggregate data ---
+  function aggregateCities(alerts) {
+    const counts = {};
+    for (const alert of alerts) {
+      if (!activeTypes.has(alert.type)) continue;
+      // If city filter active, only include alerts that mention at least one selected city
+      if (selectedCities.size > 0 && !alert.cities.some(c => selectedCities.has(c))) continue;
+      for (const city of alert.cities) {
+        if (selectedCities.size > 0 && !selectedCities.has(city)) continue;
+        if (!counts[city]) counts[city] = { total: 0, byType: {} };
+        counts[city].total++;
+        counts[city].byType[alert.type] = (counts[city].byType[alert.type] || 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  // --- Also filter the timeline by selected cities ---
+  function getActiveAlerts() {
+    return filteredAlerts.filter(a => {
+      if (!activeTypes.has(a.type)) return false;
+      if (selectedCities.size > 0 && !a.cities.some(c => selectedCities.has(c))) return false;
+      return true;
+    });
+  }
+
+  // --- Render map layers ---
+  function clearLayers() {
+    if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+    if (clusterGroup) { map.removeLayer(clusterGroup); clusterGroup = null; }
+    if (bubbleGroup) { map.removeLayer(bubbleGroup); bubbleGroup = null; }
+  }
+
+  function renderMap() {
+    clearLayers();
+    const counts = aggregateCities(filteredAlerts);
+    const resolved = [];
+    let maxCount = 0;
+
+    for (const [city, data] of Object.entries(counts)) {
+      const coords = cityCoords(city);
+      if (coords) {
+        resolved.push({ city, coords, ...data });
+        if (data.total > maxCount) maxCount = data.total;
+      }
+    }
+
+    if (currentView === 'heatmap') {
+      const points = [];
+      for (const r of resolved) {
+        // Add multiple points for higher counts to intensify heat
+        const intensity = r.total / Math.max(maxCount, 1);
+        points.push([r.coords[0], r.coords[1], intensity]);
+      }
+      heatLayer = L.heatLayer(points, {
+        radius: 22,
+        blur: 18,
+        maxZoom: 12,
+        max: 1,
+        gradient: { 0.1: '#0d47a1', 0.3: '#1565c0', 0.5: '#ffeb3b', 0.7: '#ff9800', 0.85: '#f44336', 1: '#ff1744' }
+      }).addTo(map);
+    }
+    else if (currentView === 'clusters') {
+      clusterGroup = L.markerClusterGroup({
+        maxClusterRadius: 40,
+        iconCreateFunction: function(cluster) {
+          const count = cluster.getChildCount();
+          let size = count < 10 ? 'small' : count < 50 ? 'medium' : 'large';
+          let px = size === 'small' ? 30 : size === 'medium' ? 40 : 50;
+          return L.divIcon({
+            html: `<div style="background:rgba(255,68,68,0.8);color:white;border-radius:50%;width:${px}px;height:${px}px;display:flex;align-items:center;justify-content:center;font-size:${px/3}px;font-weight:bold;border:2px solid rgba(255,255,255,0.3);">${count}</div>`,
+            className: '',
+            iconSize: [px, px]
+          });
+        }
+      });
+      for (const r of resolved) {
+        const dominantType = Object.entries(r.byType).sort((a,b) => b[1]-a[1])[0]?.[0] || 0;
+        const color = ALERT_TYPES[dominantType]?.color || '#ff4444';
+        const marker = L.circleMarker(r.coords, {
+          radius: 5, fillColor: color, fillOpacity: 0.8, color: 'white', weight: 1
+        });
+        marker.bindPopup(`<div class="popup-title">${r.city}</div><div class="popup-stat">${r.total} התראות</div>` +
+          Object.entries(r.byType).map(([t,c]) => `<div class="popup-stat">${ALERT_TYPES[t]?.icon || ''} ${ALERT_TYPES[t]?.name || t}: ${c}</div>`).join(''));
+        clusterGroup.addLayer(marker);
+      }
+      map.addLayer(clusterGroup);
+    }
+    else if (currentView === 'bubbles') {
+      bubbleGroup = L.layerGroup();
+      for (const r of resolved) {
+        const radius = Math.max(4, Math.sqrt(r.total / Math.max(maxCount, 1)) * 30);
+        const dominantType = Object.entries(r.byType).sort((a,b) => b[1]-a[1])[0]?.[0] || 0;
+        const color = ALERT_TYPES[dominantType]?.color || '#ff4444';
+        const circle = L.circleMarker(r.coords, {
+          radius, fillColor: color, fillOpacity: 0.45, color: color, weight: 1.5, opacity: 0.7
+        });
+        circle.bindPopup(`<div class="popup-title">${r.city}</div><div class="popup-stat">${r.total} התראות</div>` +
+          Object.entries(r.byType).map(([t,c]) => `<div class="popup-stat">${ALERT_TYPES[t]?.icon || ''} ${ALERT_TYPES[t]?.name || t}: ${c}</div>`).join(''));
+        bubbleGroup.addLayer(circle);
+      }
+      bubbleGroup.addTo(map);
+    }
+
+    updateStats(counts);
+    updateTopCities(counts);
+    updateTimeline();
+    updateHourly();
+  }
+
+  // --- Stats ---
+  function updateStats(counts) {
+    const totalAlerts = getActiveAlerts().length;
+    const totalCities = Object.keys(counts).length;
+    const totalMentions = Object.values(counts).reduce((s, c) => s + c.total, 0);
+    const from = document.getElementById('date-from').value;
+    const to = document.getElementById('date-to').value;
+    const days = Math.max(1, Math.ceil((new Date(to) - new Date(from)) / 86400000) + 1);
+
+    document.getElementById('stat-alerts').textContent = totalAlerts.toLocaleString();
+    document.getElementById('stat-cities').textContent = totalCities.toLocaleString();
+    document.getElementById('stat-city-mentions').textContent = totalMentions.toLocaleString();
+    document.getElementById('stat-avg').textContent = (totalAlerts / days).toFixed(1);
+  }
+
+  // --- Top cities ---
+  function updateTopCities(counts) {
+    const sorted = Object.entries(counts).sort((a,b) => b[1].total - a[1].total).slice(0, 12);
+    const max = sorted[0]?.[1].total || 1;
+    const container = document.getElementById('top-cities');
+    container.innerHTML = sorted.map(([city, data]) => {
+      const pct = (data.total / max * 100).toFixed(0);
+      const dominantType = Object.entries(data.byType).sort((a,b) => b[1]-a[1])[0]?.[0] || 0;
+      const color = ALERT_TYPES[dominantType]?.color || '#ff4444';
+      return `<div class="city-bar-row">
+        <div class="city-bar-name">${city}</div>
+        <div class="city-bar-track"><div class="city-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+        <div class="city-bar-count">${data.total}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // --- Timeline ---
+  function updateTimeline() {
+    const canvas = document.getElementById('timeline-canvas');
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    const W = rect.width, H = rect.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const active = getActiveAlerts();
+    if (!active.length) return;
+
+    // Group by day
+    const byDay = {};
+    for (const a of active) {
+      const day = new Date(a.startTime * 1000).toISOString().slice(0, 10);
+      if (!byDay[day]) byDay[day] = { total: 0, byType: {} };
+      byDay[day].total++;
+      byDay[day].byType[a.type] = (byDay[day].byType[a.type] || 0) + 1;
+    }
+
+    const from = document.getElementById('date-from').value;
+    const to = document.getElementById('date-to').value;
+    const days = [];
+    let d = new Date(from);
+    const endD = new Date(to);
+    while (d <= endD) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+    }
+    if (!days.length) return;
+
+    const maxVal = Math.max(...days.map(d => byDay[d]?.total || 0), 1);
+    const barW = Math.max(1, (W - 10) / days.length - 1);
+    const gap = 1;
+    const barArea = H - 30; // leave room for count on top + date on bottom
+
+    // Draw bars stacked by type
+    const typeOrder = [0, 5, 2, 3];
+    for (let i = 0; i < days.length; i++) {
+      const x = 5 + i * (barW + gap);
+      const total = byDay[days[i]]?.total || 0;
+      let yOffset = 0;
+      for (const t of typeOrder) {
+        const count = byDay[days[i]]?.byType[t] || 0;
+        if (!count || !activeTypes.has(t)) continue;
+        const h = (count / maxVal) * barArea;
+        ctx.fillStyle = ALERT_TYPES[t]?.color || '#ff4444';
+        ctx.globalAlpha = 0.8;
+        ctx.fillRect(x, H - 15 - yOffset - h, barW, h);
+        yOffset += h;
+      }
+
+      // Draw count label above bar
+      if (total > 0 && barW >= 8) {
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#ccc';
+        const fontSize = Math.min(10, Math.max(7, barW * 0.6));
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        const labelY = H - 15 - yOffset - 3;
+        ctx.fillText(total, x + barW / 2, Math.max(fontSize, labelY));
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // Draw date labels
+    ctx.fillStyle = '#555';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    const labelEvery = Math.max(1, Math.floor(days.length / 6));
+    for (let i = 0; i < days.length; i += labelEvery) {
+      const x = 5 + i * (barW + gap) + barW / 2;
+      const label = days[i].slice(5); // MM-DD
+      ctx.fillText(label, x, H - 2);
+    }
+  }
+
+  // --- Hour of day chart ---
+  function updateHourly() {
+    const canvas = document.getElementById('hourly-canvas');
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    const W = rect.width, H = rect.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const active = getActiveAlerts();
+    if (!active.length) return;
+
+    // Count alerts per hour, stacked by type
+    const byHour = Array.from({ length: 24 }, () => ({ total: 0, byType: {} }));
+    for (const a of active) {
+      const hour = new Date(a.startTime * 1000).getHours();
+      byHour[hour].total++;
+      byHour[hour].byType[a.type] = (byHour[hour].byType[a.type] || 0) + 1;
+    }
+
+    const maxVal = Math.max(...byHour.map(h => h.total), 1);
+    const barW = (W - 20) / 24 - 2;
+    const gap = 2;
+    const barArea = H - 28;
+    const typeOrder = [0, 5, 2];
+
+    for (let h = 0; h < 24; h++) {
+      const x = 10 + h * (barW + gap);
+      let yOffset = 0;
+      for (const t of typeOrder) {
+        const count = byHour[h].byType[t] || 0;
+        if (!count || !activeTypes.has(t)) continue;
+        const barH = (count / maxVal) * barArea;
+        ctx.fillStyle = ALERT_TYPES[t]?.color || '#ff4444';
+        ctx.globalAlpha = 0.8;
+        ctx.fillRect(x, H - 14 - yOffset - barH, barW, barH);
+        yOffset += barH;
+      }
+
+      // Count label
+      if (byHour[h].total > 0 && barW >= 8) {
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#ccc';
+        ctx.font = `${Math.min(9, Math.max(6, barW * 0.55))}px sans-serif`;
+        ctx.textAlign = 'center';
+        const labelY = H - 14 - yOffset - 2;
+        ctx.fillText(byHour[h].total, x + barW / 2, Math.max(8, labelY));
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // Hour labels
+    ctx.fillStyle = '#555';
+    ctx.font = '8px sans-serif';
+    ctx.textAlign = 'center';
+    for (let h = 0; h < 24; h += 2) {
+      const x = 10 + h * (barW + gap) + barW / 2;
+      ctx.fillText(String(h).padStart(2, '0'), x, H - 2);
+    }
+  }
+
+  // --- Type filters ---
+  function renderTypeFilters() {
+    const container = document.getElementById('type-filters');
+    const typeCounts = {};
+    filteredAlerts.forEach(a => { typeCounts[a.type] = (typeCounts[a.type] || 0) + 1; });
+
+    container.innerHTML = Object.entries(ALERT_TYPES).map(([type, info]) => {
+      const count = typeCounts[type] || 0;
+      return `<label class="type-filter">
+        <input type="checkbox" ${activeTypes.has(Number(type)) ? 'checked' : ''} data-type="${type}" />
+        <div class="type-dot" style="background:${info.color}"></div>
+        <span class="type-label">${info.icon} ${info.name}</span>
+        <span class="type-count">${count}</span>
+      </label>`;
+    }).join('');
+
+    container.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const t = Number(inp.dataset.type);
+        if (inp.checked) activeTypes.add(t); else activeTypes.delete(t);
+        renderMap();
+      });
+    });
+  }
+
+  // --- City filter ---
+  const citySearchInput = document.getElementById('city-search');
+  const cityDropdown = document.getElementById('city-dropdown');
+  const activeCityFilters = document.getElementById('active-city-filters');
+  let highlightedIdx = -1;
+
+  function getAllCitiesWithCounts() {
+    const counts = {};
+    for (const alert of filteredAlerts) {
+      if (!activeTypes.has(alert.type)) continue;
+      for (const city of alert.cities) {
+        counts[city] = (counts[city] || 0) + 1;
+      }
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }
+
+  function showDropdown(filter) {
+    const all = getAllCitiesWithCounts();
+    const query = filter.trim();
+    const filtered = query
+      ? all.filter(([city]) => city.includes(query) && !selectedCities.has(city))
+      : all.filter(([city]) => !selectedCities.has(city));
+    const shown = filtered.slice(0, 30);
+    highlightedIdx = -1;
+
+    if (!shown.length) {
+      cityDropdown.classList.remove('open');
+      return;
+    }
+
+    cityDropdown.innerHTML = shown.map(([city, count], i) =>
+      `<div class="city-option" data-city="${city}" data-idx="${i}">
+        <span>${city}</span>
+        <span class="city-option-count">${count}</span>
+      </div>`
+    ).join('');
+    cityDropdown.classList.add('open');
+
+    cityDropdown.querySelectorAll('.city-option').forEach(opt => {
+      opt.addEventListener('click', () => {
+        addCityFilter(opt.dataset.city);
+      });
+    });
+  }
+
+  function addCityFilter(city) {
+    selectedCities.add(city);
+    citySearchInput.value = '';
+    cityDropdown.classList.remove('open');
+    renderCityTags();
+    renderMap();
+  }
+
+  function removeCityFilter(city) {
+    selectedCities.delete(city);
+    renderCityTags();
+    renderMap();
+  }
+
+  function renderCityTags() {
+    if (selectedCities.size === 0) {
+      activeCityFilters.innerHTML = '';
+      return;
+    }
+    activeCityFilters.innerHTML =
+      [...selectedCities].map(city =>
+        `<div class="city-tag"><span>${city}</span><span class="city-tag-x" data-city="${city}">&times;</span></div>`
+      ).join('') +
+      `<button class="city-clear-all" id="clear-all-cities">נקה הכל</button>`;
+
+    activeCityFilters.querySelectorAll('.city-tag-x').forEach(x => {
+      x.addEventListener('click', () => removeCityFilter(x.dataset.city));
+    });
+    document.getElementById('clear-all-cities')?.addEventListener('click', () => {
+      selectedCities.clear();
+      renderCityTags();
+      renderMap();
+    });
+  }
+
+  citySearchInput.addEventListener('input', () => showDropdown(citySearchInput.value));
+  citySearchInput.addEventListener('focus', () => showDropdown(citySearchInput.value));
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.city-search-wrap')) cityDropdown.classList.remove('open');
+  });
+
+  // Keyboard navigation
+  citySearchInput.addEventListener('keydown', (e) => {
+    const options = cityDropdown.querySelectorAll('.city-option');
+    if (!options.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      highlightedIdx = Math.min(highlightedIdx + 1, options.length - 1);
+      options.forEach((o, i) => o.classList.toggle('highlighted', i === highlightedIdx));
+      options[highlightedIdx]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      highlightedIdx = Math.max(highlightedIdx - 1, 0);
+      options.forEach((o, i) => o.classList.toggle('highlighted', i === highlightedIdx));
+      options[highlightedIdx]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlightedIdx >= 0 && options[highlightedIdx]) {
+        addCityFilter(options[highlightedIdx].dataset.city);
+      }
+    } else if (e.key === 'Escape') {
+      cityDropdown.classList.remove('open');
+    }
+  });
+
+  // --- View toggle ---
+  document.querySelectorAll('.view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentView = btn.dataset.view;
+      renderMap();
+    });
+  });
+
+  // --- Date controls ---
+  async function onDateChange() {
+    const from = document.getElementById('date-from').value;
+    const to = document.getElementById('date-to').value;
+    if (!from || !to) return;
+    document.getElementById('loading').classList.remove('hidden');
+    try {
+      allAlerts = await loadAlerts(from, to);
+      filteredAlerts = allAlerts;
+      renderTypeFilters();
+      renderMap();
+    } catch(e) {
+      console.error(e);
+    }
+    document.getElementById('loading').classList.add('hidden');
+  }
+
+  document.getElementById('date-from').addEventListener('change', onDateChange);
+  document.getElementById('date-to').addEventListener('change', onDateChange);
+
+  // Presets
+  document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const days = Number(btn.dataset.range);
+      const to = new Date();
+      const from = new Date();
+      from.setDate(from.getDate() - days + 1);
+      document.getElementById('date-from').value = from.toISOString().slice(0, 10);
+      document.getElementById('date-to').value = to.toISOString().slice(0, 10);
+      onDateChange();
+    });
+  });
+
+  // --- Loading helper ---
+  function updateLoading(text) {
+    document.getElementById('loading-text').textContent = text;
+  }
+
+  // --- Init ---
+  try {
+    await loadCities();
+
+    // Default: last 30 days
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 29);
+    document.getElementById('date-from').value = from.toISOString().slice(0, 10);
+    document.getElementById('date-to').value = to.toISOString().slice(0, 10);
+    document.querySelector('.preset-btn[data-range="30"]').classList.add('active');
+
+    allAlerts = await loadAlerts(from.toISOString().slice(0,10), to.toISOString().slice(0,10));
+    filteredAlerts = allAlerts;
+    renderTypeFilters();
+    renderMap();
+  } catch(e) {
+    console.error('Init error:', e);
+    updateLoading('שגיאה בטעינת נתונים: ' + e.message);
+    return;
+  }
+
+  document.getElementById('loading').classList.add('hidden');
+
+  // --- Auto-refresh every 60s ---
+  function updateRefreshTime() {
+    const el = document.getElementById('last-refresh');
+    if (el) el.textContent = new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+    const dot = document.getElementById('refresh-dot');
+    if (dot) { dot.classList.remove('stale'); setTimeout(() => dot.classList.add('stale'), 3000); }
+  }
+  updateRefreshTime();
+
+  async function silentRefresh() {
+    try {
+      const from = document.getElementById('date-from').value;
+      const to = document.getElementById('date-to').value;
+      if (!from || !to) return;
+      const newAlerts = await loadAlerts(from, to);
+      if (newAlerts.length !== allAlerts.length) {
+        allAlerts = newAlerts;
+        filteredAlerts = allAlerts;
+        renderTypeFilters();
+        renderMap();
+      }
+      updateRefreshTime();
+    } catch(e) { console.warn('Auto-refresh failed:', e); }
+  }
+  setInterval(silentRefresh, 60000);
+
+  // Resize handler
+  window.addEventListener('resize', () => { updateTimeline(); updateHourly(); map.invalidateSize(); });
+})();
+</script>
+</body>
+</html>
