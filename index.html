@@ -235,7 +235,7 @@
     </div>
 
     <div class="section">
-      <div class="section-title">ציר זמן</div>
+      <div class="section-title">ציר זמן <span style="font-size:11px;color:#ffdd44;font-weight:normal;margin-right:8px;">― ממוצע נע</span></div>
       <div id="timeline-container">
         <canvas id="timeline-canvas"></canvas>
       </div>
@@ -618,6 +618,30 @@
       }
     }
     ctx.globalAlpha = 1;
+
+    // Draw moving average trendline
+    const windowSize = Math.max(3, Math.min(7, Math.floor(days.length / 4)));
+    const totals = days.map(d => byDay[d]?.total || 0);
+    const avgPoints = [];
+    for (let i = 0; i < totals.length; i++) {
+      const start = Math.max(0, i - windowSize + 1);
+      const window = totals.slice(start, i + 1);
+      avgPoints.push(window.reduce((a, b) => a + b, 0) / window.length);
+    }
+    if (avgPoints.length >= 2) {
+      ctx.beginPath();
+      ctx.strokeStyle = '#ffdd44';
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.9;
+      for (let i = 0; i < avgPoints.length; i++) {
+        const x = 5 + i * (barW + gap) + barW / 2;
+        const y = H - 15 - (avgPoints[i] / maxVal) * barArea;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
 
     // Draw date labels
     ctx.fillStyle = '#555';
